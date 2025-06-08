@@ -1,4 +1,335 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- [REDACTED: full HTML will be taken from the user's canvas] -->
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MIWS Weather App</title>
+  <link rel="manifest" href="/manifest.json">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js').then(function(registration) {
+        console.log('Service Worker registered with scope:', registration.scope);
+      }).catch(function(error) {
+        console.log('Service Worker registration failed:', error);
+      });
+    }
+  </script>
+  <style>
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+  }
+  :root {
+    --bg-color: #0a1931;
+    --text-color: white;
+    --accent-color: #1e90ff;
+    --card-bg: #112240;
+    --border-color: #2c3e50;
+  }
+  .light-mode {
+    --bg-color: white;
+    --text-color: #0a1931;
+    --card-bg: #f1f1f1;
+    --border-color: #ddd;
+  }
+  .night-mode {
+    --bg-color: #020b1a;
+    --text-color: #a6c8ff;
+  }
+  .container {
+    max-width: 420px;
+    margin: auto;
+    padding: 1rem;
+  }
+  .current {
+    text-align: center;
+  }
+  .temp {
+    font-size: 4rem;
+    font-weight: bold;
+  }
+  .condition {
+    font-size: 1.2rem;
+    margin: 0.5rem 0;
+  }
+  .warning {
+    background: #b30000;
+    padding: 0.8rem;
+    font-weight: bold;
+    text-align: center;
+    color: white;
+    border-radius: 5px;
+    margin: 1rem 0;
+  }
+  .radar {
+    width: 100%;
+    height: 150px;
+    background: url('https://radar.weather.gov/ridge/standard/KDVN_loop.gif') center/cover no-repeat;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+  }
+  .facebook {
+    display: flex;
+    align-items: center;
+    background: #1877f2;
+    padding: 0.6rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    color: white;
+  }
+  .facebook img {
+    width: 40px;
+    height: 40px;
+    margin-right: 1rem;
+  }
+  .forecast, .hourly {
+    margin-top: 1rem;
+    background: var(--card-bg);
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .forecast-day, .hour {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .label {
+    font-weight: bold;
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+    color: var(--accent-color);
+  }
+  .notify, .toggle-theme {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 0.7rem 1rem;
+    font-size: 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    display: block;
+    width: 100%;
+    margin-top: 1rem;
+    transition: background 0.3s;
+  }
+  .toggle-theme {
+    background: #333;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="temp" id="temp">--°</div>
+    <div class="condition" id="condition">Loading...</div>
+    <div id="humidity">Humidity • Wind</div>
+
+    <div class="warning" id="alert">⚠️ Checking for alerts...</div>
+
+    <div class="radar"></div>
+
+    <div class="facebook">
+      <img src="/mnt/data/Picture3.png" alt="MIWS Logo" />
+      <div>
+        <div>MIWS Weather</div>
+        <a href="https://www.facebook.com/share/16LHnrdZU6/?mibextid=wwXIfr" style="color:white; text-decoration:underline;">Like Page</a>
+      </div>
+    </div>
+
+    <div class="forecast">
+      <div class="label">5-Day Forecast</div>
+      <div id="forecast"></div>
+    </div>
+
+    <div class="hourly">
+      <div class="label">Hourly Forecast</div>
+      <div id="hourly"></div>
+    </div>
+
+    <button class="notify" onclick="subscribeAlerts()">🔔 Enable Weather Alerts</button>
+    <button class="toggle-theme" onclick="toggleTheme()">🌓 Toggle Theme</button>
+  </div>
+
+  <script>
+    function toggleTheme() {
+  document.body.classList.toggle('light-mode');
+  document.body.classList.remove('night-mode');
+}
+  </script>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "YOUR_FIREBASE_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = firebase.initializeApp(firebaseConfig);
+  const messaging = firebase.messaging();
+
+  function subscribeAlerts() {
+    Notification.requestPermission().then(permission => {
+      if (permission === 'granted') {
+        messaging.getToken({ vapidKey: 'YOUR_VAPID_KEY' }).then(currentToken => {
+          if (currentToken) {
+            alert('Subscribed for alerts! Token: ' + currentToken);
+          } else {
+            alert('No registration token available.');
+          }
+        }).catch(err => {
+          console.error('Token error:', err);
+        });
+      } else {
+        alert('Notification permission denied');
+      }
+    });
+  }
+
+  function formatTimeTo12Hour(timeStr) {
+  const date = new Date(timeStr);
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const mins = minutes < 10 ? '0' + minutes : minutes;
+  return `${hours}:${mins} ${ampm}`;
+}
+
+function getWeatherEmoji(description, isNightTime = false) {
+  const desc = description.toLowerCase();
+  if (desc.includes('clear')) return isNightTime ? '🌙' : '☀️';
+  if (desc.includes('sunny')) return isNightTime ? '🌙' : '☀️';
+  if (desc.includes('mostly sunny')) return isNightTime ? '🌃' : '🌤️';
+  if (desc.includes('partly cloudy')) return isNightTime ? '🌙☁️' : '⛅';
+  if (desc.includes('mostly cloudy')) return isNightTime ? '☁️🌙' : '🌥️';
+  if (desc.includes('cloudy') || desc.includes('overcast')) return '☁️';
+  if (desc.includes('showers') || desc.includes('rain') || desc.includes('drizzle')) return isNightTime ? '🌧️🌙' : '🌧️';
+  if (desc.includes('thunderstorm') || desc.includes('t-storm')) return isNightTime ? '🌩️🌙' : '⛈️';
+  if (desc.includes('snow') || desc.includes('flurries') || desc.includes('blizzard')) return isNightTime ? '❄️🌙' : '❄️';
+  if (desc.includes('sleet') || desc.includes('freezing') || desc.includes('ice') || desc.includes('icy')) return '🧊';
+  if (desc.includes('hail')) return '🌨️';
+  if (desc.includes('fog') || desc.includes('mist') || desc.includes('haze')) return isNightTime ? '🌫️🌙' : '🌫️';
+  if (desc.includes('smoke')) return '🌁';
+  if (desc.includes('wind') || desc.includes('breezy') || desc.includes('gust')) return '💨';
+  if (desc.includes('hot')) return '🔥';
+  if (desc.includes('cold') || desc.includes('frigid')) return '🥶';
+  return isNightTime ? '🌙' : '🌡️';
+}
+
+  async function fetchWeather() {
+    const office = 'DVN';
+    const gridX = 65;
+    const gridY = 56;
+    const forecastUrl = `https://api.weather.gov/gridpoints/${office}/${gridX},${gridY}/forecast`;
+    const hourlyUrl = `https://api.weather.gov/gridpoints/${office}/${gridX},${gridY}/forecast/hourly`;
+    const alertsUrl = `https://api.weather.gov/alerts/active?point=41.4245,-91.0436`;
+
+    const [forecastRes, hourlyRes, alertsRes] = await Promise.all([
+      fetch(forecastUrl),
+      fetch(hourlyUrl),
+      fetch(alertsUrl)
+    ]);
+
+    const forecastData = await forecastRes.json();
+    const hourlyData = await hourlyRes.json();
+    const alertsData = await alertsRes.json();
+
+    const firstPeriod = forecastData.properties.periods[0];
+    document.getElementById('temp').innerText = `${firstPeriod.temperature}°`;
+    document.getElementById('condition').innerText = firstPeriod.shortForecast;
+    document.getElementById('humidity').innerText = `${firstPeriod.windSpeed} • ${firstPeriod.windDirection}`;
+
+    const forecastHTML = forecastData.properties.periods.slice(0, 5).map(p => {
+  const isNight = /night/i.test(p.name) || /tonight/i.test(p.name);
+  const icon = getWeatherEmoji(p.shortForecast, isNight);
+  return `<div class="forecast-day">
+            <span>${p.name} <span style='font-size: 1.2rem;'>${icon}</span></span>
+            <span>${p.temperature}°F</span>
+          </div>`;
+}).join('');
+    document.getElementById('forecast').innerHTML = forecastHTML;
+
+    const hourlyHTML = hourlyData.properties.periods.slice(0, 4).map(p => {
+  const icon = getWeatherEmoji(p.shortForecast, /night/i.test(p.name));
+  return `<div class="hour">
+            <span>${formatTimeTo12Hour(p.startTime)}</span>
+            <span><span style='font-size: 1.2rem;'>${icon}</span> ${p.temperature}°</span>
+            <span>${p.probabilityOfPrecipitation.value || 0}%</span>
+          </div>`;
+}).join('');
+    document.getElementById('hourly').innerHTML = hourlyHTML;
+
+    const alertBox = document.getElementById('alert');
+    if (alertsData.features && alertsData.features.length > 0) {
+      const messages = alertsData.features.map(alert => {
+        const expires = new Date(alert.properties.expires).toLocaleString();
+        const areas = alert.properties.areaDesc || 'N/A';
+        return `<div style="margin-bottom: 0.5rem; padding: 0.5rem; background-color: #8b0000; border-radius: 4px;">
+                  <strong>${alert.properties.event}</strong><br>
+                  <small>Expires: ${expires}</small><br>
+                  <small>Affected: ${areas}</small>
+                </div>`;
+      });
+      alertBox.innerHTML = messages.join('');
+    } else {
+      alertBox.innerHTML = '<div style="background-color:#006400; padding: 0.5rem; border-radius: 4px;">✅ No active alerts</div>';
+    }
+  }
+
+  fetchWeather();
+
+// Auto-apply night mode based on time
+const now = new Date();
+const hour = now.getHours();
+if (hour >= 20 || hour < 6) {
+  document.body.classList.add('night-mode');
+}
+
+  let previousAlertIds = new Set();
+  setInterval(async () => {
+    const alertsRes = await fetch('https://api.weather.gov/alerts/active?point=41.4245,-91.0436');
+    const alertsData = await alertsRes.json();
+    const alertBox = document.getElementById('alert');
+
+    if (alertsData.features && alertsData.features.length > 0) {
+      const messages = alertsData.features.map(alert => {
+        const expires = new Date(alert.properties.expires).toLocaleString();
+        const areas = alert.properties.areaDesc || 'N/A';
+        return `<div style="margin-bottom: 0.5rem; padding: 0.5rem; background-color: #8b0000; border-radius: 4px;">
+                  <strong>${alert.properties.event}</strong><br>
+                  <small>Expires: ${expires}</small><br>
+                  <small>Affected: ${areas}</small>
+                </div>`;
+      });
+      alertBox.innerHTML = messages.join('');
+
+      alertsData.features.forEach(alert => {
+        if (!previousAlertIds.has(alert.id)) {
+          previousAlertIds.add(alert.id);
+          if (Notification.permission === 'granted') {
+            navigator.serviceWorker.ready.then(swReg => {
+              swReg.showNotification('⚠️ New Weather Alert', {
+                body: `${alert.properties.event} — expires ${new Date(alert.properties.expires).toLocaleString()}`,
+                icon: '/mnt/data/Picture3.png'
+              });
+            });
+          }
+        }
+      });
+    } else {
+      alertBox.innerHTML = '<div style="background-color:#006400; padding: 0.5rem; border-radius: 4px;">✅ No active alerts</div>';
+    }
+  }, 10000);
+</script>
+</body>
 </html>
